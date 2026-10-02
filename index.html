@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🐤 Прыгай!</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+  body {
+    background: linear-gradient(#1a1a2e, #16213e);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+  }
+  #game {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+    height: 100vh;
+    max-height: 800px;
+    background: linear-gradient(#0f0f1e, #1a1a2e);
+    overflow: hidden;
+    border-radius: 10px;
+  }
+  #score {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    color: #fff;
+    font-size: 24px;
+    font-weight: bold;
+    z-index: 10;
+  }
+  #player {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    background: #4ade80;
+    border-radius: 8px;
+    bottom: 60px;
+    left: 60px;
+    transition: transform 0.1s;
+    box-shadow: 0 0 20px #4ade80;
+  }
+  .obstacle {
+    position: absolute;
+    width: 40px;
+    background: #ef4444;
+    border-radius: 8px;
+    bottom: 60px;
+    box-shadow: 0 0 15px #ef4444;
+  }
+  #ground {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 60px;
+    background: #333;
+    border-top: 3px solid #555;
+  }
+  #gameover {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    z-index: 20;
+  }
+  #gameover h1 { font-size: 40px; color: #ef4444; margin-bottom: 20px; }
+  #gameover p { font-size: 20px; margin-bottom: 20px; }
+  #gameover button {
+    padding: 15px 40px;
+    font-size: 20px;
+    background: #4ade80;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #start {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    z-index: 20;
+    text-align: center;
+    padding: 20px;
+  }
+  #start h1 { font-size: 36px; margin-bottom: 20px; }
+  #start p { font-size: 18px; margin-bottom: 30px; }
+  #start button {
+    padding: 15px 40px;
+    font-size: 20px;
+    background: #4ade80;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="score">0</div>
+  <div id="player"></div>
+  <div id="ground"></div>
+
+  <div id="start">
+    <h1>🐤 Прыгай!</h1>
+    <p>Тапай по экрану, чтобы прыгать.<br>Уклоняйся от красных блоков!</p>
+    <button id="startBtn">Играть</button>
+  </div>
+
+  <div id="gameover">
+    <h1>Игра окончена</h1>
+    <p>Счёт: <span id="finalScore">0</span></p>
+    <button id="restartBtn">Заново</button>
+  </div>
+</div>
+
+<script>
+const game = document.getElementById('game');
+const player = document.getElementById('player');
+const scoreEl = document.getElementById('score');
+const gameover = document.getElementById('gameover');
+const startScreen = document.getElementById('start');
+const finalScore = document.getElementById('finalScore');
+
+let playerY = 0;         // высота прыжка
+let velocity = 0;        // скорость
+let isJumping = false;
+let score = 0;
+let obstacles = [];
+let gameSpeed = 5;
+let running = false;
+let spawnTimer = 0;
+let animationId;
+let lastTime = 0;
+
+const GRAVITY = 0.8;
+const JUMP_FORCE = -15;
+
+function jump() {
+  if (!isJumping && running) {
+    velocity = JUMP_FORCE;
+    isJumping = true;
+  }
+}
+
+function spawnObstacle() {
+  const obs = document.createElement('div');
+  obs.className = 'obstacle';
+  const h = 30 + Math.random() * 50;
+  obs.style.height = h + 'px';
+  obs.style.left = game.offsetWidth + 'px';
+  obs.style.bottom = '60px';
+  game.appendChild(obs);
+  obstacles.push({ el: obs, x: game.offsetWidth });
+}
+
+function update(dt) {
+  // Физика игрока
+  if (isJumping) {
+    velocity += GRAVITY;
+    playerY += velocity;
+    if (playerY >= 0) {
+      playerY = 0;
+      velocity = 0;
+      isJumping = false;
+    }
+    player.style.transform = `translateY(${playerY}px)`;
+  }
+
+  // Спавн врагов
+  spawnTimer += dt;
+  if (spawnTimer > Math.max(40, 90 - score * 2)) {
+    spawnObstacle();
+    spawnTimer = 0;
+  }
+
+  // Движение врагов
+  const playerLeft = 60;
+  const playerRight = 60 + 40;
+  const playerBottom = 60 - playerY;         // 60 = bottom игрока
+  const playerTop = playerBottom + 40;
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const o = obstacles[i];
+    o.x -= gameSpeed * dt;
+    o.el.style.left = o.x + 'px';
+
+    // Столкновение
+    const obsBottom = 60;
+    const obsTop = 60 + o.el.offsetHeight;
+    const obsLeft = o.x;
+    const obsRight = o.x + 40;
+
+    if (playerRight > obsLeft && playerLeft < obsRight &&
+        playerTop > obsBottom && playerBottom < obsTop) {
+      endGame();
+      return;
+    }
+
+    // Прошёл врага — счёт
+    if (o.x + 40 < playerLeft && !o.scored) {
+      o.scored = true;
+      score++;
+      scoreEl.textContent = score;
+      if (score % 5 === 0) gameSpeed += 0.5;
+    }
+
+    // Удаление
+    if (o.x < -50) {
+      o.el.remove();
+      obstacles.splice(i, 1);
+    }
+  }
+}
+
+function loop(time) {
+  if (!running) return;
+  const dt = Math.min((time - lastTime) / 16, 3) || 1;
+  lastTime = time;
+  update(dt);
+  animationId = requestAnimationFrame(loop);
+}
+
+function startGame() {
+  // Сброс
+  obstacles.forEach(o => o.el.remove());
+  obstacles = [];
+  score = 0;
+  gameSpeed = 5;
+  spawnTimer = 0;
+  playerY = 0;
+  velocity = 0;
+  isJumping = false;
+  player.style.transform = 'translateY(0)';
+  scoreEl.textContent = '0';
+
+  startScreen.style.display = 'none';
+  gameover.style.display = 'none';
+  running = true;
+  lastTime = performance.now();
+  animationId = requestAnimationFrame(loop);
+}
+
+function endGame() {
+  running = false;
+  cancelAnimationFrame(animationId);
+  finalScore.textContent = score;
+  gameover.style.display = 'flex';
+}
+
+// Управление
+game.addEventListener('touchstart', (e) => {
+  if (running) { e.preventDefault(); jump(); }
+}, { passive: false });
+
+game.addEventListener('mousedown', () => { if (running) jump(); });
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && running) jump();
+});
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('restartBtn').addEventListener('click', startGame);
+</script>
+</body>
+  </html>q
